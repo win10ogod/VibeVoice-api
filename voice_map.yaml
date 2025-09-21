@@ -1,0 +1,27 @@
+#############################################
+# VibeVoice API voice alias mapping (DEFAULT)
+#############################################
+
+# This default mapping mirrors config/voice_map.yaml.sample.
+# You can edit this file directly or set VIBEVOICE_VOICE_MAP to point to another YAML.
+
+alloy: en-Frank_man
+ash: en-Carter_man
+echo: en-Carter_man
+verse: en-Frank_man
+coral: en-Maya_woman
+sage: en-Maya_woman
+shimmer: en-Alice_woman
+ballad: en-Alice_woman
+
+zh-host: zh-Xinran_woman
+zh-male: zh-Bowen_man
+in-male: in-Samuel_man
+
+aliases:
+  promo_female: demo/voices/en-Alice_woman.wav
+  promo_male: demo/voices/en-Frank_man.wav
+  # Example absolute paths
+  # win_custom: F:\\voices\\my_voice.wav
+  # mac_custom: file:///Users/me/voices/custom.wav
+

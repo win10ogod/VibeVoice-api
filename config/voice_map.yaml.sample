@@ -1,0 +1,68 @@
+#############################################
+# VibeVoice API voice alias mapping (SAMPLE)
+#############################################
+
+# How it works
+# ------------
+# The server scans demo/voices/*.wav and builds an internal map like:
+#   en-Frank_man -> demo/voices/en-Frank_man.wav
+#   en-Alice_woman -> demo/voices/en-Alice_woman.wav
+#   zh-Bowen_man -> demo/voices/zh-Bowen_man.wav
+# ...
+#
+# You can provide aliases here that resolve to either:
+#  A) A scanned display name (case-insensitive, relaxed), or
+#  B) An explicit audio file path (relative to repo root or absolute)
+#
+# Search order for this YAML (first match wins):
+#  1) VIBEVOICE_VOICE_MAP env var (relative to repo root or absolute)
+#  2) <repo>/voice_map.yaml
+#  3) <repo>/config/voice_map.yaml (this sample location)
+#
+# Accepted audio extensions: .wav, .mp3, .flac, .ogg, .opus, .aac, .m4a
+#
+# Two styles are supported (equivalent):
+#  - Flat mapping (at root)
+#  - aliases: { ... } object
+
+
+# -------- Flat mapping examples --------
+# Map popular OpenAI names to closest local samples
+alloy: en-Frank_man
+ash: en-Carter_man
+echo: en-Carter_man
+verse: en-Frank_man
+coral: en-Maya_woman
+sage: en-Maya_woman
+shimmer: en-Alice_woman
+ballad: en-Alice_woman
+
+# Cross-language shortcuts
+zh-host: zh-Xinran_woman
+zh-male: zh-Bowen_man
+in-male: in-Samuel_man
+
+
+# -------- aliases: object examples --------
+aliases:
+  # 1) Relative file path (to repo root)
+  promo_female: demo/voices/en-Alice_woman.wav
+  promo_male: demo/voices/en-Frank_man.wav
+
+  # 2) Windows absolute path
+  win_custom: F:\\voices\\my_voice.wav
+
+  # 3) file:// scheme (mac/linux)
+  mac_custom: file:///Users/me/voices/custom.wav
+
+  # 4) Map to scanned display name (case-insensitive)
+  mellow: en-Maya_woman
+
+
+# Notes
+# -----
+# - Aliases override internal auto aliases if duplicated.
+# - Matching to scanned names is case-insensitive and allows partial fallback.
+# - If multiple matches occur, the first scanned name wins.
+# - If an alias points to a missing file, it is ignored.
+# - Update this file and your next request will pick it up (the mapper reloads on each request).
