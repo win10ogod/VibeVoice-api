@@ -170,9 +170,9 @@ def to_bytes_for_format(wav: np.ndarray, sample_rate: int, fmt: str) -> Tuple[by
                 obs.add_hint(f"ffmpeg_missing:{f}")
             except Exception:
                 pass
-        raise ValueError(
-            f"response_format '{f}' requires ffmpeg; set VIBEVOICE_FFMPEG or install ffmpeg in PATH"
-        )
+            raise ValueError(
+                f"response_format '{f}' requires ffmpeg; set VIBEVOICE_FFMPEG or install ffmpeg in PATH"
+            )
         wav_bytes = encode_wav_pcm16_bytes(wav, sample_rate)
         return _ffmpeg_transcode(wav_bytes, sample_rate, f)
     raise ValueError(f"Unsupported response_format: {fmt}")
