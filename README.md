@@ -175,6 +175,28 @@ Auth & Logging:
   - `requests.log` (JSONL; includes request id, prompt snippet if enabled)
   - `hints.log` (JSONL; internal hints per request)
   - Configure via env: `VIBEVOICE_LOG_DIR`, `VIBEVOICE_LOG_PROMPTS=1`, `VIBEVOICE_PROMPT_MAXLEN=4096`.
+- Admin API key management (requires `VIBEVOICE_ADMIN_TOKEN`):
+  1. Export a secret token before launching the server, e.g. `export VIBEVOICE_ADMIN_TOKEN="super-secret"`. If unset the admin routes return `403 admin_disabled`.
+  2. Call the admin endpoints (respecting your base path, `/v1` by default) with an `Authorization: Bearer $VIBEVOICE_ADMIN_TOKEN` header:
+
+     ```bash
+     # List stored key hashes
+     curl -sS -H "Authorization: Bearer $VIBEVOICE_ADMIN_TOKEN" \
+       http://127.0.0.1:8000/v1/admin/keys
+
+     # Create/import a key (omit the body to auto-generate with the given prefix)
+     curl -sS -X POST -H "Authorization: Bearer $VIBEVOICE_ADMIN_TOKEN" \
+       -H "Content-Type: application/json" \
+       -d '{"prefix": "sk-"}' \
+       http://127.0.0.1:8000/v1/admin/keys
+
+     # Revoke a key by its stored hash
+     curl -sS -X DELETE -H "Authorization: Bearer $VIBEVOICE_ADMIN_TOKEN" \
+       http://127.0.0.1:8000/v1/admin/keys/<key_hash>
+     ```
+
+  3. `GET` responds with `{"keys": [...], "count": N}`; `POST` returns the plaintext `key` (only shown once) plus its `hash` (SHA-256); `DELETE` returns `{"deleted": true, "hash": ...}` or a `404` for unknown hashes. You can supply an existing key with `{"key": "sk-..."}` or omit the body to let the server generate one (optionally customise the prefix).
+  4. These admin routes bypass the regular API-key middleware so you can manage keys even when `VIBEVOICE_REQUIRE_API_KEY=1`, but they are still observed/logged and reply with clear `401`/`403` errors if the admin bearer token is missing or incorrect.
 
 ### 🚨 Tips
 

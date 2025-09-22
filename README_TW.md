@@ -133,6 +133,37 @@ aliases:
 - `logs/hints.log`：Hints JSONL（例如 `speed_clamp`、`instructions_applied`、`ffmpeg_encode`）。
 - 回應標頭：`X-Request-ID`、`X-Hints`、`X-Model`、`X-Sample-Rate`、（若夾取）`X-Speed-Clamped: 1`。
 
+## 管理 API Key（Admin）
+
+1. 在啟動伺服器前設定管理員權杖，例如：
+
+   ```bash
+   export VIBEVOICE_ADMIN_TOKEN="super-secret"
+   ```
+
+   若未設定，所有 `/admin/keys` 路由都會回傳 `403 admin_disabled`。
+
+2. 以 `Authorization: Bearer $VIBEVOICE_ADMIN_TOKEN` 標頭呼叫管理端點（記得依據 `VIBEVOICE_API_BASE_PATH` 調整，預設 `/v1`）：
+
+   ```bash
+   # 列出已儲存的金鑰雜湊
+   curl -sS -H "Authorization: Bearer $VIBEVOICE_ADMIN_TOKEN" \
+     http://127.0.0.1:8000/v1/admin/keys
+
+   # 建立或匯入金鑰（省略 body 時會依 prefix 自動產生）
+   curl -sS -X POST -H "Authorization: Bearer $VIBEVOICE_ADMIN_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"prefix": "sk-"}' \
+     http://127.0.0.1:8000/v1/admin/keys
+
+   # 以雜湊值撤銷金鑰
+   curl -sS -X DELETE -H "Authorization: Bearer $VIBEVOICE_ADMIN_TOKEN" \
+     http://127.0.0.1:8000/v1/admin/keys/<key_hash>
+   ```
+
+3. `GET` 會回傳 `{"keys": [...], "count": N}`；`POST` 回傳一次性的明文 `key` 與其 SHA-256 `hash`（也可改傳 `{"key": "sk-..."}` 匯入既有金鑰）；`DELETE` 回傳 `{"deleted": true, "hash": ...}` 或在找不到雜湊時回傳 `404`。
+4. 這些管理路由不受一般 API Key 中介層限制，因此即使 `VIBEVOICE_REQUIRE_API_KEY=1` 仍可管理金鑰；所有請求仍會被記錄/監控，若缺少或提供錯誤的 Bearer token，會回應明確的 `401`／`403`。
+
 ## 常見環境變數
 
 - `VIBEVOICE_DEVICE=cpu|cuda|mps`

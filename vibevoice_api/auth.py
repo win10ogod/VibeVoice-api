@@ -4,7 +4,7 @@ import json
 import os
 import secrets
 import hashlib
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 from vibevoice_api.config import CONFIG
 
@@ -41,6 +41,10 @@ def generate_api_key(prefix: str = "sk-") -> str:
     return prefix + secrets.token_urlsafe(32)
 
 
+def hash_api_key(key: str) -> str:
+    return _hash_key(key)
+
+
 def add_api_key(key: str, path: Optional[str] = None) -> None:
     ks_path = path or CONFIG.keystore_path
     data = _load_keystore(ks_path)
@@ -49,6 +53,31 @@ def add_api_key(key: str, path: Optional[str] = None) -> None:
     keys.add(hashed)
     data["keys"] = sorted(keys)
     _save_keystore(ks_path, data)
+
+
+def list_api_key_hashes(path: Optional[str] = None) -> List[str]:
+    ks_path = path or CONFIG.keystore_path
+    data = _load_keystore(ks_path)
+    keys = list({str(k) for k in data.get("keys", [])})
+    keys.sort()
+    return keys
+
+
+def remove_api_key(key: str, path: Optional[str] = None, *, hashed: bool = False) -> bool:
+    if not key:
+        return False
+    ks_path = path or CONFIG.keystore_path
+    data = _load_keystore(ks_path)
+    stored = list(data.get("keys", []))
+    if not stored:
+        return False
+    key_hash = key if hashed else _hash_key(key)
+    if key_hash not in stored:
+        return False
+    remaining = [k for k in stored if k != key_hash]
+    data["keys"] = sorted({str(k) for k in remaining})
+    _save_keystore(ks_path, data)
+    return True
 
 
 def validate_api_key(key: Optional[str], path: Optional[str] = None) -> bool:
