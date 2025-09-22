@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Dict, Optional
+from typing import Any, Dict, List, Optional
 import yaml
 
 
@@ -30,13 +30,7 @@ class VoiceMapper:
                 continue
             name = os.path.splitext(entry)[0]
             path = os.path.join(self._voices_dir, entry)
-            # direct
-            self._name_to_path[name] = path
-            # normalized variants
-            simple = name.replace("_", "-")
-            self._name_to_path[simple] = path
-            if "-" in simple:
-                self._name_to_path[simple.split("-")[-1]] = path
+            self._register_voice(name, path)
 
         # Map common OpenAI TTS voice names to closest local samples if available
         # This improves out-of-the-box compatibility when users pass e.g. "alloy", "ash", etc.
@@ -61,6 +55,17 @@ class VoiceMapper:
                     self._name_to_path[alias] = self._name_to_path[key]
                     break
 
+    def _register_voice(self, name: str, path: str, *, normalized: bool = True) -> None:
+        """Register a voice alias and optional relaxed variants."""
+
+        self._name_to_path[name] = path
+        if not normalized:
+            return
+        simple = name.replace("_", "-")
+        self._name_to_path[simple] = path
+        if "-" in simple:
+            self._name_to_path[simple.split("-")[-1]] = path
+
     def _load_yaml_aliases(self) -> None:
         """Load optional YAML-defined alias mappings.
 
@@ -75,6 +80,12 @@ class VoiceMapper:
           or under a top-level key:
             aliases:
               sleek: en-Frank_man
+          plus optional directory listings:
+            directories:
+              - demo/voices/custom
+              - path: more_voices
+                prefix: custom_
+                recursive: true
         """
         candidates = []
         env_path = os.environ.get("VIBEVOICE_VOICE_MAP")
@@ -99,8 +110,21 @@ class VoiceMapper:
 
         if not isinstance(data, dict):
             return
-        mapping = data.get("aliases") if isinstance(data.get("aliases"), dict) else data
-        if not isinstance(mapping, dict):
+
+        self._load_yaml_directories(data.get("directories"))
+
+        alias_section = data.get("aliases")
+        if isinstance(alias_section, dict):
+            mapping: Dict[str, str] = alias_section
+        else:
+            mapping = {}
+            for key, value in data.items():
+                if key in {"directories", "aliases"}:
+                    continue
+                if isinstance(key, str) and isinstance(value, str):
+                    mapping[key] = value
+
+        if not mapping:
             return
 
         # Build normalized alias map
@@ -132,6 +156,95 @@ class VoiceMapper:
                     if key.lower() in val.lower() or val.lower() in key.lower():
                         self._name_to_path[alias] = path
                         break
+
+    def _load_yaml_directories(self, directories: Any) -> None:
+        """Load voice aliases defined via directory listings."""
+
+        if directories in (None, ""):
+            return
+
+        entries: List[Dict[str, Any]] = []
+
+        def add_entry(path: Any, prefix: Any = None, recursive: Any = False, normalize: Any = None) -> None:
+            if not isinstance(path, str):
+                return
+            cleaned = path.strip()
+            if not cleaned:
+                return
+            entry: Dict[str, Any] = {
+                "path": cleaned,
+                "prefix": prefix if isinstance(prefix, str) and prefix else None,
+                "recursive": bool(recursive),
+            }
+            if isinstance(normalize, bool):
+                entry["normalize"] = normalize
+            entries.append(entry)
+
+        def parse_item(item: Any) -> None:
+            if isinstance(item, str):
+                add_entry(item)
+                return
+            if isinstance(item, (list, tuple, set)):
+                for sub in item:
+                    parse_item(sub)
+                return
+            if isinstance(item, dict):
+                if any(key in item for key in ("path", "dir", "directory")):
+                    path_value = item.get("path") or item.get("dir") or item.get("directory")
+                    add_entry(
+                        path_value,
+                        item.get("prefix"),
+                        item.get("recursive", False),
+                        item.get("normalize"),
+                    )
+                    return
+                for key, value in item.items():
+                    if isinstance(value, dict):
+                        nested = dict(value)
+                        nested.setdefault("path", key)
+                        parse_item(nested)
+                    elif isinstance(value, (str, type(None))):
+                        add_entry(key, value if isinstance(value, str) else None)
+
+        parse_item(directories)
+
+        if not entries:
+            return
+
+        audio_exts = {".wav", ".mp3", ".flac", ".ogg", ".opus", ".aac", ".m4a"}
+        for entry in entries:
+            raw_path = entry["path"]
+            prefix = entry.get("prefix")
+            recursive = entry.get("recursive", False)
+            normalize = entry.get("normalize")
+
+            path = raw_path
+            if path.startswith("file://"):
+                path = path[7:]
+            if not os.path.isabs(path):
+                path = os.path.join(self.root_dir, path)
+            if not os.path.isdir(path):
+                continue
+
+            should_normalize = normalize if isinstance(normalize, bool) else prefix is None
+
+            if recursive:
+                walker = (
+                    os.path.join(dirpath, filename)
+                    for dirpath, _, filenames in os.walk(path)
+                    for filename in filenames
+                )
+            else:
+                walker = (os.path.join(path, filename) for filename in os.listdir(path))
+
+            for file_path in walker:
+                if not os.path.isfile(file_path):
+                    continue
+                base_name, ext = os.path.splitext(os.path.basename(file_path))
+                if ext.lower() not in audio_exts:
+                    continue
+                alias = f"{prefix}{base_name}" if prefix else base_name
+                self._register_voice(alias, file_path, normalized=should_normalize)
 
     def resolve(self, voice: Optional[str]) -> Optional[str]:
         if not self._name_to_path:
