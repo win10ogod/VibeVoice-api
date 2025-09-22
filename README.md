@@ -71,13 +71,34 @@ Start the server:
 python -m vibevoice_api.server --model_path vibevoice/VibeVoice-1.5B --port 8000
 ```
 
+#### API base path (`/v1` default)
+
+All routes are mounted on `/v1` by default. Override the prefix before launching the server by setting `VIBEVOICE_API_BASE_PATH` (leading slash required):
+
+```bash
+export VIBEVOICE_API_BASE_PATH=/api
+python -m vibevoice_api.server --model_path vibevoice/VibeVoice-1.5B --port 8000
+```
+
+Clients must include the same prefix when constructing URLs:
+
+```python
+base_path = "/api"  # matches VIBEVOICE_API_BASE_PATH
+client = OpenAI(base_url=f"http://127.0.0.1:8000{base_path}", api_key="<YOUR_API_KEY>")
+```
+
+The static console is served at `<base_path>/web/console.html`. Legacy root routes (e.g., `/audio/speech`, `/metrics`) remain for backwards compatibility, but new integrations should prefer the explicit prefix.
+
 Then test with either the official openai client (pip) or a pure-HTTP script.
 
 Option A — official openai (pip install openai ≥ 1.40):
 
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="<YOUR_API_KEY>")
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/v1",  # adjust if VIBEVOICE_API_BASE_PATH changes
+    api_key="<YOUR_API_KEY>",
+)
 
 speech = client.audio.speech.create(
     model="vibevoice/VibeVoice-1.5B",  # or local path
@@ -105,6 +126,7 @@ python scripts/api_audio_speech_test.py \
 ```
 
 Notes:
+- Base URL: if you override `VIBEVOICE_API_BASE_PATH`, point clients (`base_url`, `--base_url`, browser tabs) to the same prefix (e.g., `http://127.0.0.1:8000/api`).
 - Formats: `wav` and `pcm` are native. `mp3`, `opus`, `aac` require ffmpeg. Set `VIBEVOICE_FFMPEG` to the binary path or ensure `ffmpeg` is in PATH. (flac removed)
 - `voice` handling:
   - Name mapping to `demo/voices/*.wav` (best-effort; falls back to first voice).

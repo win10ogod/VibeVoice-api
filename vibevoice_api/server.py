@@ -7,7 +7,7 @@ from typing import Optional
 
 import uuid
 import time
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import APIRouter, FastAPI, HTTPException, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import StreamingResponse, JSONResponse, PlainTextResponse
@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 from vibevoice_api.config import CONFIG
 from vibevoice_api.tts_engine import synthesize, synthesize_stream_pcm
-from vibevoice_api import observability as obs
+from vibevoice_api import auth, observability as obs
 from vibevoice_api.voice_map import VoiceMapper
 import vibevoice_api.config as config_mod
 
@@ -51,6 +51,49 @@ def _load_dotenv_if_present() -> None:
 _load_dotenv_if_present()
 CONFIG = config_mod.ServerConfig()
 
+
+def _normalize_base_path(raw: str | None) -> str:
+    if not raw:
+        return ""
+    path = raw.strip()
+    if not path or path == "/":
+        return ""
+    if not path.startswith("/"):
+        path = "/" + path
+    while len(path) > 1 and path.endswith("/"):
+        path = path[:-1]
+    return path
+
+
+API_PREFIX = _normalize_base_path(CONFIG.base_path)
+
+
+def _join_with_base(path: str) -> str:
+    if not path:
+        return API_PREFIX or "/"
+    if not path.startswith("/"):
+        path = "/" + path
+    if not API_PREFIX:
+        return path
+    if path == "/":
+        return API_PREFIX
+    return f"{API_PREFIX}{path}"
+
+
+def _normalize_request_path(path: str) -> str:
+    if not path:
+        return "/"
+    if not path.startswith("/"):
+        path = "/" + path
+    if len(path) > 1 and path.endswith("/"):
+        path = path.rstrip("/")
+    return path or "/"
+
+
+_OPEN_PATHS_RAW = {"/", "/health", "/metrics", "/favicon.ico"}
+_OPEN_PATHS = {_normalize_request_path(p) for p in _OPEN_PATHS_RAW}
+_OPEN_PATHS.update(_normalize_request_path(_join_with_base(p)) for p in _OPEN_PATHS_RAW)
+
 log = logging.getLogger("vibevoice_api")
 
 
@@ -78,6 +121,8 @@ def _configure_logging() -> None:
 
 _configure_logging()
 
+router = APIRouter(prefix=API_PREFIX or "")
+
 app = FastAPI(title="VibeVoice OpenAI-Compatible Audio API")
 
 # Allow CORS for browser-based clients (dev-friendly)
@@ -95,14 +140,23 @@ _web_dir_candidates = [
     os.path.abspath(os.path.join(_here, "..", "web")),
     os.path.abspath(os.path.join(os.getcwd(), "web")),
 ]
+_mounted_static_paths: set[str] = set()
 for _p in _web_dir_candidates:
     if os.path.isdir(_p):
-        app.mount("/web", StaticFiles(directory=_p), name="web")
+        mount_points = [(_join_with_base("/web"), "web")]
+        if mount_points[0][0] != "/web":
+            mount_points.append(("/web", "web-legacy"))
+        for _mount_path, _mount_name in mount_points:
+            if _mount_path in _mounted_static_paths:
+                continue
+            app.mount(_mount_path, StaticFiles(directory=_p), name=_mount_name)
+            _mounted_static_paths.add(_mount_path)
         break
 
 # Startup info
 log.info(
-    "Startup config: require_api_key=%s, admin_token_configured=%s, logs_dir=%s",
+    "Startup config: base_path=%s, require_api_key=%s, admin_token_configured=%s, logs_dir=%s",
+    API_PREFIX or "/",
     str(CONFIG.require_api_key),
     "yes" if CONFIG.admin_token else "no",
     CONFIG.logs_dir,
@@ -132,23 +186,23 @@ class SpeechRequest(BaseModel):
     speakers: Optional[list[str]] = Field(None, description="List of voices (alias/path/dataURL) for Speaker 1..N")
 
 
-@app.get("/")
+@router.get("/")
 def root() -> JSONResponse:
     return JSONResponse({"name": "vibevoice_api", "version": "0.1.0"})
 
 
-@app.get("/health")
+@router.get("/health")
 def health() -> PlainTextResponse:
     return PlainTextResponse("ok")
 
 
-@app.get("/metrics")
+@router.get("/metrics")
 def metrics() -> Response:
     data = generate_latest()
     return Response(content=data, media_type=CONTENT_TYPE_LATEST)
 
 
-@app.get("/voices/aliases")
+@router.get("/voices/aliases")
 def voices_aliases() -> JSONResponse:
     mapper = VoiceMapper(os.getcwd())
     avail = mapper.available()
@@ -156,7 +210,7 @@ def voices_aliases() -> JSONResponse:
     return JSONResponse({"aliases": names, "count": len(names)})
 
 
-@app.get("/config/ffmpeg")
+@router.get("/config/ffmpeg")
 def config_ffmpeg() -> JSONResponse:
     cfg = {
         "ffmpeg_path": CONFIG.ffmpeg_path,
@@ -182,9 +236,9 @@ async def metrics_and_request_id_middleware(request: Request, call_next):
     start = time.perf_counter()
     endpoint = request.url.path
     method = request.method
-    # API key auth (skip for health/metrics/root and admin/keys routes)
-    open_path = {"/", "/health", "/metrics", "/favicon.ico"}
-    if CONFIG.require_api_key and request.url.path not in open_path:
+    # API key auth (skip for configured open paths)
+    normalized_path = _normalize_request_path(endpoint)
+    if CONFIG.require_api_key and normalized_path not in _OPEN_PATHS:
         authz = request.headers.get("Authorization", "")
         if not authz.startswith("Bearer "):
             return JSONResponse(status_code=401, content={"error": {"message": "Unauthorized", "type": "invalid_api_key"}})
@@ -216,7 +270,7 @@ async def metrics_and_request_id_middleware(request: Request, call_next):
     return response
 
 
-def _speech_impl(req: SpeechRequest, base_dir: str):
+def _speech_impl(req: SpeechRequest, base_dir: str, endpoint_path: str):
     if not req.input or not isinstance(req.input, str):
         raise HTTPException(status_code=400, detail="'input' must be a non-empty string")
 
@@ -384,7 +438,7 @@ def _speech_impl(req: SpeechRequest, base_dir: str):
                 "requests.log",
                 {
                     "rid": obs.get_request_id(),
-                    "endpoint": "/audio/speech",
+                    "endpoint": endpoint_path,
                     "model": req.model,
                     "format": "pcm",
                     "speed": speed,
@@ -469,7 +523,7 @@ def _speech_impl(req: SpeechRequest, base_dir: str):
             "requests.log",
             {
                 "rid": obs.get_request_id(),
-                "endpoint": "/audio/speech",
+                "endpoint": endpoint_path,
                 "model": req.model,
                 "format": fmt,
                 "speed": speed,
@@ -492,19 +546,32 @@ def _speech_impl(req: SpeechRequest, base_dir: str):
     return StreamingResponse(iter([data]), media_type="application/octet-stream", headers=headers)
 
 
-@app.post("/audio/speech")
+@router.post("/audio/speech")
 def audio_speech(req: SpeechRequest, request: Request):
     base_dir = os.getcwd()
-    return _speech_impl(req, base_dir)
-
-
-@app.post("/v1/audio/speech")
-def audio_speech_v1(req: SpeechRequest, request: Request):
-    base_dir = os.getcwd()
-    return _speech_impl(req, base_dir)
+    return _speech_impl(req, base_dir, request.url.path)
 
 
 # Note: STT endpoints intentionally not provided.
+
+
+def _register_legacy_aliases(application: FastAPI) -> None:
+    if not API_PREFIX:
+        return
+    legacy_routes = [
+        ("/", root, ["GET"]),
+        ("/health", health, ["GET"]),
+        ("/metrics", metrics, ["GET"]),
+        ("/voices/aliases", voices_aliases, ["GET"]),
+        ("/config/ffmpeg", config_ffmpeg, ["GET"]),
+        ("/audio/speech", audio_speech, ["POST"]),
+    ]
+    for path, handler, methods in legacy_routes:
+        application.add_api_route(path, handler, methods=methods, include_in_schema=False)
+
+
+app.include_router(router)
+_register_legacy_aliases(app)
 
 
 def main(argv: Optional[list[str]] = None) -> None:
