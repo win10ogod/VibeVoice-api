@@ -90,6 +90,9 @@ with open("out.wav", "wb") as f:
     f.write(speech.read())
 ```
 
+> ℹ️ **Tip:** `mp3`, `opus`, and `aac` responses require a working ffmpeg binary (set `VIBEVOICE_FFMPEG` or ensure `ffmpeg` is on
+> PATH). When ffmpeg is unavailable the server will raise a clear error; `wav`/`pcm` continue to work without it.
+
 Option B — pure HTTP script (no openai dependency):
 
 ```bash
