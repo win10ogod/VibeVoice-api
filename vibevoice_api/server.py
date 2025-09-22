@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import logging
 import os
+import secrets
 from typing import Optional
 
 import uuid
@@ -94,6 +95,16 @@ _OPEN_PATHS_RAW = {"/", "/health", "/metrics", "/favicon.ico"}
 _OPEN_PATHS = {_normalize_request_path(p) for p in _OPEN_PATHS_RAW}
 _OPEN_PATHS.update(_normalize_request_path(_join_with_base(p)) for p in _OPEN_PATHS_RAW)
 
+_ADMIN_KEYS_PREFIX = _normalize_request_path(_join_with_base("/admin/keys"))
+
+
+def _is_admin_path(path: str) -> bool:
+    if not _ADMIN_KEYS_PREFIX or _ADMIN_KEYS_PREFIX == "/":
+        return False
+    if path == _ADMIN_KEYS_PREFIX:
+        return True
+    return path.startswith(f"{_ADMIN_KEYS_PREFIX}/")
+
 log = logging.getLogger("vibevoice_api")
 
 
@@ -122,6 +133,7 @@ def _configure_logging() -> None:
 _configure_logging()
 
 router = APIRouter(prefix=API_PREFIX or "")
+admin_router = APIRouter(prefix=_ADMIN_KEYS_PREFIX)
 
 app = FastAPI(title="VibeVoice OpenAI-Compatible Audio API")
 
@@ -227,6 +239,82 @@ def config_ffmpeg() -> JSONResponse:
     return JSONResponse(cfg)
 
 
+class AdminKeyCreateRequest(BaseModel):
+    key: Optional[str] = Field(
+        None, description="Existing API key to persist. If omitted, a new key is generated.")
+    prefix: Optional[str] = Field(
+        "sk-", description="Prefix used when generating a new API key if none is supplied.")
+
+
+def _require_admin_auth(request: Request) -> Optional[JSONResponse]:
+    token = (CONFIG.admin_token or "").strip()
+    if not token:
+        return JSONResponse(
+            status_code=403,
+            content={"error": {"message": "Admin token not configured", "type": "admin_disabled"}},
+        )
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        return JSONResponse(
+            status_code=401,
+            content={"error": {"message": "Admin token required", "type": "invalid_admin_token"}},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    provided = auth_header.split(" ", 1)[1].strip()
+    if not provided or not secrets.compare_digest(provided, token):
+        return JSONResponse(
+            status_code=403,
+            content={"error": {"message": "Invalid admin token", "type": "invalid_admin_token"}},
+        )
+    return None
+
+
+@admin_router.get("")
+def admin_list_keys(request: Request) -> JSONResponse:
+    auth_error = _require_admin_auth(request)
+    if auth_error:
+        return auth_error
+    hashes = auth.list_api_key_hashes()
+    return JSONResponse({"keys": hashes, "count": len(hashes)})
+
+
+@admin_router.post("", status_code=201)
+def admin_create_key(request: Request, payload: Optional[AdminKeyCreateRequest] = None) -> JSONResponse:
+    auth_error = _require_admin_auth(request)
+    if auth_error:
+        return auth_error
+    body = payload or AdminKeyCreateRequest()
+    key = (body.key or "").strip()
+    if not key:
+        prefix_value = body.prefix if body and body.prefix is not None else "sk-"
+        key = auth.generate_api_key(prefix=prefix_value)
+    auth.add_api_key(key)
+    key_hash = auth.hash_api_key(key)
+    log.info("Admin created API key hash=%s", key_hash)
+    return JSONResponse({"key": key, "hash": key_hash}, status_code=201)
+
+
+@admin_router.delete("/{key_hash}")
+def admin_delete_key(key_hash: str, request: Request) -> JSONResponse:
+    auth_error = _require_admin_auth(request)
+    if auth_error:
+        return auth_error
+    normalized = (key_hash or "").strip().lower()
+    if not normalized:
+        return JSONResponse(
+            status_code=400,
+            content={"error": {"message": "key_hash is required", "type": "invalid_request_error"}},
+        )
+    removed = auth.remove_api_key(normalized, hashed=True)
+    if not removed:
+        return JSONResponse(
+            status_code=404,
+            content={"error": {"message": "API key not found", "type": "invalid_request_error"}},
+        )
+    log.info("Admin revoked API key hash=%s", normalized)
+    return JSONResponse({"deleted": True, "hash": normalized})
+
+
 @app.middleware("http")
 async def metrics_and_request_id_middleware(request: Request, call_next):
     # assign request id and hints container
@@ -238,7 +326,8 @@ async def metrics_and_request_id_middleware(request: Request, call_next):
     method = request.method
     # API key auth (skip for configured open paths)
     normalized_path = _normalize_request_path(endpoint)
-    if CONFIG.require_api_key and normalized_path not in _OPEN_PATHS:
+    admin_path = _is_admin_path(normalized_path)
+    if CONFIG.require_api_key and normalized_path not in _OPEN_PATHS and not admin_path:
         authz = request.headers.get("Authorization", "")
         if not authz.startswith("Bearer "):
             return JSONResponse(status_code=401, content={"error": {"message": "Unauthorized", "type": "invalid_api_key"}})
@@ -571,6 +660,7 @@ def _register_legacy_aliases(application: FastAPI) -> None:
 
 
 app.include_router(router)
+app.include_router(admin_router)
 _register_legacy_aliases(app)
 
 
