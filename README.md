@@ -130,15 +130,17 @@ Notes:
 - Formats: `wav` and `pcm` are native. `mp3`, `opus`, `aac` require ffmpeg. Set `VIBEVOICE_FFMPEG` to the binary path or ensure `ffmpeg` is in PATH. (flac removed)
 - `voice` handling:
   - Name mapping to `demo/voices/*.wav` (best-effort; falls back to first voice).
-  - Optional YAML mapping: create `voice_map.yaml` (or set `VIBEVOICE_VOICE_MAP=path/to/voice_map.yaml`) to alias names to existing samples or custom files.
+  - Optional YAML mapping: create `voice_map.yaml` (or set `VIBEVOICE_VOICE_MAP=path/to/voice_map.yaml`) to alias names to existing samples, custom files, or whole directories that are scanned for audio files.
     Example:
-    
+
     ```yaml
     # voice_map.yaml
     alloy: en-Frank_man        # map to scanned name
     ash: demo/voices/en-Carter_man.wav  # map to explicit path
     aliases:
       shimmer: en-Alice_woman
+    directories:
+      - demo/custom_voices
     ```
   - SSE streaming: set `stream_format="sse"` to receive SSE events with base64-encoded PCM chunks.
   - Absolute/relative file path also works: set `voice="path:/abs/or/relative.wav"` or just `voice="/abs/or/relative.wav"`.
@@ -297,7 +299,7 @@ Copy the sample and edit:
 cp config/voice_map.yaml.sample config/voice_map.yaml
 ```
 
-Example mapping:
+Example mapping (aliases plus directory auto-discovery):
 
 ```yaml
 # voice_map.yaml
@@ -307,6 +309,12 @@ ash: en-Carter_man
 aliases:
   promo_female: demo/voices/en-Alice_woman.wav
   win_custom: F:\\voices\\my_voice.wav
+
+directories:
+  - demo/custom_voices
+  - path: demo/more_voices
+    prefix: promo_
+    recursive: true
 ```
 
 Then call with `voice="alloy"` (or any alias you created). Changes are picked up on next request.

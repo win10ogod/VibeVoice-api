@@ -85,7 +85,7 @@ node scripts/js/openai_sse_client.mjs   --base http://127.0.0.1:8000   --model "
 ## 參考音檔與 voice 設定
 
 - voice 名稱（掃描 demo/voices）：預設會掃描 `demo/voices/*.wav`，並可用名稱（例如 `en-Alice_woman`）。
-- voice YAML 映射：可用 YAML 管理別名（見下一節）。
+- voice YAML 映射：可用 YAML 管理別名或自動掃描多個資料夾（見下一節）。
 - 明確路徑：用 `extra_body={"voice_path": "./my_ref.wav"}`。
 - 上傳音檔：用 `extra_body={"voice_data": "data:audio/wav;base64,..."}` 或純 base64 字串。
 
@@ -103,7 +103,7 @@ node scripts/js/openai_sse_client.mjs   --base http://127.0.0.1:8000   --model "
 cp config/voice_map.yaml.sample config/voice_map.yaml
 ```
 
-編輯 `voice_map.yaml`：
+編輯 `voice_map.yaml`（可同時設定別名與資料夾掃描）：
 
 ```yaml
 # 將常見名稱對應到掃描到的聲音名稱
@@ -114,9 +114,16 @@ ash: en-Carter_man
 aliases:
   promo_female: demo/voices/en-Alice_woman.wav
   win_custom: F:\voices\my_voice.wav
+
+# directories 區塊：列出資料夾即可依檔名自動建立 alias
+directories:
+  - demo/custom_voices
+  - path: demo/more_voices
+    prefix: promo_
+    recursive: true
 ```
 
-呼叫時直接使用 `voice="alloy"` 或 `voice="promo_female"` 即可。
+呼叫時直接使用 `voice="alloy"`、`voice="promo_female"` 或 `voice="promo_en-Miles"`（依實際檔名）即可。
 
 ## SSE 串流（text/event-stream）
 

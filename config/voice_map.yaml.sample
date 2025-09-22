@@ -59,6 +59,23 @@ aliases:
   mellow: en-Maya_woman
 
 
+# -------- directories: auto-discover voices from folders --------
+# You can list directories and the server will create aliases from the file names
+# found inside. Extensions supported: .wav, .mp3, .flac, .ogg, .opus, .aac, .m4a
+directories:
+  # 1) Simple relative directory (non-recursive). File demo/custom/en-Joy.wav
+  #     becomes alias "en-Joy" plus normalized variants.
+  - demo/custom
+
+  # 2) Directory with prefix and recursion. Files under demo/more_voices/**
+  #     become aliases like "promo_en-Miles". Set normalize: true if you also
+  #     want relaxed variants (e.g., "en-Miles").
+  - path: demo/more_voices
+    prefix: promo_
+    recursive: true
+    # normalize: true
+
+
 # Notes
 # -----
 # - Aliases override internal auto aliases if duplicated.
