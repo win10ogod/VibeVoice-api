@@ -18,13 +18,34 @@ uv pip install -e .
 python -m vibevoice_api.server --model_path "F:/VibeVoice-Large" --port 8000
 ```
 
+### API 基底路徑（預設 `/v1`）
+
+- 伺服器預設在 `/v1` 前綴下提供所有路由。若需更改，請在啟動前設定 `VIBEVOICE_API_BASE_PATH`（請包含前導斜線 `/`）：
+
+  ```bash
+  export VIBEVOICE_API_BASE_PATH=/api
+  python -m vibevoice_api.server --model_path "F:/VibeVoice-Large" --port 8000
+  ```
+
+- 客戶端請使用相同前綴建立 URL，例如：
+
+  ```python
+  base_path = "/api"  # 與 VIBEVOICE_API_BASE_PATH 相同
+  client = OpenAI(base_url=f"http://127.0.0.1:8000{base_path}", api_key="ignored")
+  ```
+
+- 靜態網頁主控台位於 `<base_path>/web/console.html`。舊的無前綴路徑仍保留相容性，但建議改用明確的前綴。
+
 3) 測試（兩種方式擇一）
 
 方式 A — 使用 OpenAI 官方套件（pip install openai ≥ 1.40）
 
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="ignored")
+client = OpenAI(
+    base_url="http://127.0.0.1:8000/v1",  # 若調整 VIBEVOICE_API_BASE_PATH 請同步修改
+    api_key="ignored",
+)
 
 speech = client.audio.speech.create(
     model="F:/VibeVoice-Large",
@@ -49,6 +70,7 @@ python scripts/api_audio_speech_test.py \
 ```
 ```
 
+- Base URL：若設定 `VIBEVOICE_API_BASE_PATH`，請在 openai `base_url`、腳本 `--base_url` 或瀏覽器網址中加入相同前綴（例如 `http://127.0.0.1:8000/api`）。
 - `response_format`: `wav`, `pcm` 原生；`mp3`, `opus`, `aac` 需伺服器安裝 ffmpeg（flac 已移除）。
 - `instructions`: 系統提示/風格指令，長度可由 `VIBEVOICE_INSTRUCTIONS_MAXLEN` 設定（預設 2000），超過會被截斷並在回應 `X-Hints` 顯示 `instructions_clamped`。
 
