@@ -200,6 +200,57 @@ Auth & Logging:
   3. `GET` responds with `{"keys": [...], "count": N}`; `POST` returns the plaintext `key` (only shown once) plus its `hash` (SHA-256); `DELETE` returns `{"deleted": true, "hash": ...}` or a `404` for unknown hashes. You can supply an existing key with `{"key": "sk-..."}` or omit the body to let the server generate one (optionally customise the prefix).
   4. These admin routes bypass the regular API-key middleware so you can manage keys even when `VIBEVOICE_REQUIRE_API_KEY=1`, but they are still observed/logged and reply with clear `401`/`403` errors if the admin bearer token is missing or incorrect.
 
+### JS SSE client (Node 18+)
+
+```bash
+node scripts/js/openai_sse_client.mjs \
+  --base http://127.0.0.1:8000 \
+  --model "F:/VibeVoice-Large" \
+  --voice Alice \
+  --text "Hello SSE" \
+  --out outputs/js_sse/out.wav
+```
+
+This client posts to `/audio/speech` with `stream_format="sse"`, parses SSE events, decodes base64 PCM chunks, and writes a WAV file.
+### Voice Mapping via YAML
+
+You can manage voice name aliases via a simple YAML file. The server loads it on each request:
+
+- Search order (first found):
+  1) `VIBEVOICE_VOICE_MAP` env var (relative to repo root or absolute)
+  2) `<repo>/voice_map.yaml`
+  3) `<repo>/config/voice_map.yaml`
+
+Copy the sample and edit:
+
+```bash
+cp config/voice_map.yaml.sample config/voice_map.yaml
+```
+
+Example mapping (aliases plus directory auto-discovery):
+
+```yaml
+# voice_map.yaml
+alloy: en-Frank_man
+ash: en-Carter_man
+
+aliases:
+  promo_female: demo/voices/en-Alice_woman.wav
+  win_custom: F:\\voices\\my_voice.wav
+
+directories:
+  - demo/custom_voices
+  - path: demo/more_voices
+    prefix: promo_
+    recursive: true
+```
+
+Then call with `voice="alloy"` (or any alias you created). Changes are picked up on next request.
+
+If you prefer an explicit path per request, keep using `extra_body.voice_path` or `extra_body.voice_data`.
+
+See also: `config/voice_map.yaml.sample` for a comprehensive example.
+
 ### 🚨 Tips
 
 We observed users may encounter occasional instability when synthesizing Chinese speech. We recommend:
@@ -272,53 +323,3 @@ In fact, we intentionally decided not to denoise our training data because we th
 The source code and models are licensed under the MIT License. See the [LICENSE](./LICENSE) file for details.
 
 Note: Microsoft has removed the original repo and models. This fork is based off of the MIT-licensed code from Microsoft.
-### JS SSE client (Node 18+)
-
-```bash
-node scripts/js/openai_sse_client.mjs \
-  --base http://127.0.0.1:8000 \
-  --model "F:/VibeVoice-Large" \
-  --voice Alice \
-  --text "Hello SSE" \
-  --out outputs/js_sse/out.wav
-```
-
-This client posts to `/audio/speech` with `stream_format="sse"`, parses SSE events, decodes base64 PCM chunks, and writes a WAV file.
-### Voice Mapping via YAML
-
-You can manage voice name aliases via a simple YAML file. The server loads it on each request:
-
-- Search order (first found):
-  1) `VIBEVOICE_VOICE_MAP` env var (relative to repo root or absolute)
-  2) `<repo>/voice_map.yaml`
-  3) `<repo>/config/voice_map.yaml`
-
-Copy the sample and edit:
-
-```bash
-cp config/voice_map.yaml.sample config/voice_map.yaml
-```
-
-Example mapping (aliases plus directory auto-discovery):
-
-```yaml
-# voice_map.yaml
-alloy: en-Frank_man
-ash: en-Carter_man
-
-aliases:
-  promo_female: demo/voices/en-Alice_woman.wav
-  win_custom: F:\\voices\\my_voice.wav
-
-directories:
-  - demo/custom_voices
-  - path: demo/more_voices
-    prefix: promo_
-    recursive: true
-```
-
-Then call with `voice="alloy"` (or any alias you created). Changes are picked up on next request.
-
-If you prefer an explicit path per request, keep using `extra_body.voice_path` or `extra_body.voice_data`.
-
-See also: `config/voice_map.yaml.sample` for a comprehensive example.
